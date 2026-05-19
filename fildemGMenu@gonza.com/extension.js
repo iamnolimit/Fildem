@@ -1,19 +1,18 @@
-'use strict';
+import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import GObject from 'gi://GObject';
+import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
+import St from 'gi://St';
 
-const { loadInterfaceXML } = imports.misc.fileUtils;
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as WindowMenu from 'resource:///org/gnome/shell/ui/windowMenu.js';
 
-const { Clutter, Gio, GLib, GObject, Meta, St } = imports.gi;
+import {Extension as ExtensionBase} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-const AppSystem  = imports.gi.Shell.AppSystem.get_default();
-const WinTracker = imports.gi.Shell.WindowTracker.get_default();
-
-const ExtensionUtils = imports.misc.extensionUtils;
-const Me = ExtensionUtils.getCurrentExtension();
-
-const Settings = Me.imports.settings.FildemGlobalMenuSettings;
-const Main = imports.ui.main;
-const PanelMenu = imports.ui.panelMenu;
-const WindowMenu = imports.ui.windowMenu;
+const WinTracker = Shell.WindowTracker.get_default();
 
 
 function log(msg) {
@@ -27,6 +26,10 @@ const WindowActions = class WindowActions {
 	constructor() {
 		this._win = global.display.get_focus_window();
 		this.actions = [];
+	}
+
+	_getCurrentTime() {
+		return global.display.get_current_time_roundtrip?.() ?? global.get_current_time();
 	}
 
 	// gitlab.gnome.org/GNOME/gnome-shell/-/blob/gnome-3-36/js/ui/windowMenu.js
@@ -130,12 +133,12 @@ const WindowActions = class WindowActions {
 				break;
 			case 'Move':
 				GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
-					WindowMenu.WindowMenu.prototype._grabAction(win, Meta.GrabOp.KEYBOARD_MOVING, global.display.get_current_time_roundtrip());
+					WindowMenu.WindowMenu.prototype._grabAction(win, Meta.GrabOp.KEYBOARD_MOVING, this._getCurrentTime());
 				});
 				break;
 			case 'Resize':
 				GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
-					WindowMenu.WindowMenu.prototype._grabAction(win, Meta.GrabOp.KEYBOARD_RESIZING_UNKNOWN, global.display.get_current_time_roundtrip());
+					WindowMenu.WindowMenu.prototype._grabAction(win, Meta.GrabOp.KEYBOARD_RESIZING_UNKNOWN, this._getCurrentTime());
 				});
 				break;
 			case 'Move Titlebar Onscreen':
@@ -189,7 +192,7 @@ const WindowActions = class WindowActions {
 	}
 
 	_moveToMonitor(dir) {
-		let monitorIndex = window.get_monitor();
+		let monitorIndex = this._win.get_monitor();
 		let newMonitorIndex = global.display.get_monitor_neighbor_index(monitorIndex, dir);
 		if (newMonitorIndex != -1) {
 			this._win.move_to_monitor(newMonitorIndex);
@@ -294,13 +297,14 @@ const MenuBar = class MenuBar {
 		Main.panel.track_hover = true;
 
 		this._panelEvHandlers = [];
+		this._overviewEvHandlers = [];
 		this._forceShowMenu = false;
 		this._showAppMenuButton = false;
 		this.setForceShowMenu();
 		this.setHideAppMenuButton();
 
-		Main.overview.connect('showing', this._onOverviewOpened.bind(this));
-		Main.overview.connect('hiding', this._onOverviewClosed.bind(this));
+		this._overviewEvHandlers.push(Main.overview.connect('showing', this._onOverviewOpened.bind(this)));
+		this._overviewEvHandlers.push(Main.overview.connect('hiding', this._onOverviewClosed.bind(this)));
 	}
 
 	setForceShowMenu() {
@@ -320,11 +324,13 @@ const MenuBar = class MenuBar {
 	setHideAppMenuButton() {
 		this._showAppMenuButton = !this.extension.settings.get_boolean('hide-app-menu');
 
-		let appBtn = Main.panel._leftBox.get_children().filter(item => {
-			item.get_first_child().constructor.name == 'AppMenuButton'
+		const children = Main.panel._leftBox?.get_children?.() ?? [];
+		let appBtn = children.filter((item) => {
+			const child = item.get_first_child?.();
+			return child?.constructor?.name === 'AppMenuButton';
 		});
 		if (appBtn.length > 0) {
-			this._appMenuButton = appBtn[0];
+			this._appMenuButton = appBtn[0].get_first_child?.() ?? null;
 		}
 		this._restoreLabel();
 	}
@@ -367,13 +373,14 @@ const MenuBar = class MenuBar {
 	// Hides the label and calculates the width
 	_hideAppMenuButton() {
 		let width = 0;
-		for (let el of Main.panel._leftBox.get_children()) {
-			let firstChild = el.get_first_child();
+		const children = Main.panel._leftBox?.get_children?.() ?? [];
+		for (let el of children) {
+			let firstChild = el.get_first_child?.();
 			if (firstChild === this._menuButtons[0]) {
 				this._width_offset = width;
 				break;
 			}
-			if (firstChild.constructor.name == 'AppMenuButton') {
+			if (firstChild?.constructor?.name === 'AppMenuButton') {
 				// [Deprecated]
 				this._appMenuButton = firstChild;
 				let label = firstChild._label;
@@ -416,7 +423,7 @@ const MenuBar = class MenuBar {
 	}
 
 	_restoreLabel() {
-		if (this._appMenuButton) {
+		if (this._appMenuButton?._label?.show) {
 			this._appMenuButton._label.show();
 		}
 	}
@@ -448,11 +455,14 @@ const MenuBar = class MenuBar {
 		this._restoreLabel();
 		this._hideMenu();
 		const overview = Main.overview.visibleTarget;
-		const focusApp = WinTracker.focus_app || Main.panel.statusArea.appMenu._targetApp;
+		const panelAppMenu = Main.panel?.statusArea?.appMenu;
+		const focusApp = WinTracker.focus_app || panelAppMenu?._targetApp || panelAppMenu?._app;
 		if (focusApp) {
 			let windowData = {};
 			// TODO does the window matter?
-			let win = focusApp.get_windows()[0];
+			let win = focusApp.get_windows?.()?.[0];
+			if (!win)
+				return;
 			let appId = focusApp.get_id(); // *.desktop			
 
 			// Check cache
@@ -493,6 +503,9 @@ const MenuBar = class MenuBar {
 		// WinTracker.disconnect(this._notifyFocusAppId);
 		for (let h of this._panelEvHandlers) {
 			Main.panel.disconnect(h);
+		}
+		for (let h of this._overviewEvHandlers) {
+			Main.overview.disconnect(h);
 		}
 		global.display.disconnect(this._notifyFocusWinId);
 	}
@@ -642,7 +655,7 @@ class MyProxy {
 };
 
 
-class Extension {
+class ExtensionController {
 	constructor(settings) {
 		this.settings = settings;
 		this._handlerIds = [];
@@ -678,17 +691,15 @@ class Extension {
 }
 
 
-let extension;
+export default class FildemGMenuExtension extends ExtensionBase {
+	enable() {
+		this.settings = this.getSettings();
+		this._controller = new ExtensionController(this.settings);
+	}
 
-function init(metadata) {
-}
-
-function enable() {
-	let settings = new Settings(Me.metadata['settings-schema']);
-	extension = new Extension(settings);
-}
-
-function disable() {
-	extension.destroy();
-	extension = null;
+	disable() {
+		this._controller?.destroy();
+		this._controller = null;
+		this.settings = null;
+	}
 }
