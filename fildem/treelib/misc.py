@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (C) 2011
 # Brett Alistair Kromkamp - brettkromkamp@gmail.com
 # Copyright (C) 2012-2017
