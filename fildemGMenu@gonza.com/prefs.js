@@ -1,96 +1,59 @@
-const GObject = imports.gi.GObject;
-const Gio = imports.gi.Gio;
-const Gtk = imports.gi.Gtk;
-const Config = imports.misc.config;
+import Adw from 'gi://Adw';
+import Gio from 'gi://Gio';
+import Gtk from 'gi://Gtk';
 
-const Me = imports.misc.extensionUtils.getCurrentExtension();
-const Settings = Me.imports.settings.FildemGlobalMenuSettings;
+import {ExtensionPreferences} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-const SHELL_VERSION = Config.PACKAGE_VERSION;
+export default class FildemGMenuPreferences extends ExtensionPreferences {
+	fillPreferencesWindow(window) {
+		Adw.init();
 
+		const settings = this.getSettings();
 
-const PrefsWidget = GObject.registerClass(
-class PrefsWidget extends Gtk.Box {	
+		window.set_default_size(500, 250);
 
-	_init(settings, params) {
-		super._init(params);
+		const page = new Adw.PreferencesPage();
+		const group = new Adw.PreferencesGroup();
+		page.add(group);
 
-		this._buildable = new Gtk.Builder();
-		this._buildable.add_from_file(Me.path + '/settings.ui');
-
-		let prefsWidget = this._getWidget('prefs_widget');
-		if (SHELL_VERSION < '40') {
-			this.add(prefsWidget);
-		} else {
-			this.append(prefsWidget);
-		}
-
-		this._settings = settings;
-		this._bindBooleans();
-    	this._bindIntSpins();
-	}
-
-	show_all() {
-		if (SHELL_VERSION < '40')
-			super.show_all();
-	}
-
-	_getWidget(name) {
-		let wname = name.replace(/-/g, '_');
-		return this._buildable.get_object(wname);
-	}
-
-	/********************
-	 * Int Spins
-	 ********************/
-
-	_getIntSpins() {
-		return [
-			'min-padding'
-		];
-	}
-
-	_bindIntSpin(setting) {
-		let widget = this._getWidget(setting);
-		widget.set_value(this._settings.get_int(setting));
-		widget.connect('value-changed', (spin) => {
-			this._settings.set_int(setting, spin.get_value());
+		const paddingAdjustment = new Gtk.Adjustment({
+			lower: 0,
+			upper: 50,
+			step_increment: 1,
+			page_increment: 1,
 		});
+		const paddingSpin = new Gtk.SpinButton({
+			adjustment: paddingAdjustment,
+			valign: Gtk.Align.CENTER,
+		});
+		settings.bind('min-padding', paddingSpin, 'value', Gio.SettingsBindFlags.DEFAULT);
+
+		const paddingRow = new Adw.ActionRow({
+			title: 'Button paddings',
+			subtitle: 'Tweak this if the menu and items desynchronize',
+		});
+		paddingRow.add_suffix(paddingSpin);
+		paddingRow.activatable_widget = paddingSpin;
+		group.add(paddingRow);
+
+		const hoverSwitch = new Gtk.Switch({valign: Gtk.Align.CENTER});
+		settings.bind('show-only-when-hover', hoverSwitch, 'active', Gio.SettingsBindFlags.DEFAULT);
+		const hoverRow = new Adw.ActionRow({
+			title: 'Show menu only when the mouse is over the panel',
+		});
+		hoverRow.add_suffix(hoverSwitch);
+		hoverRow.activatable_widget = hoverSwitch;
+		group.add(hoverRow);
+
+		const hideSwitch = new Gtk.Switch({valign: Gtk.Align.CENTER});
+		settings.bind('hide-app-menu', hideSwitch, 'active', Gio.SettingsBindFlags.DEFAULT);
+		const hideRow = new Adw.ActionRow({
+			title: 'Hide the app label when showing the menu',
+		});
+		hideRow.add_suffix(hideSwitch);
+		hideRow.activatable_widget = hideSwitch;
+		group.add(hideRow);
+
+		window.add(page);
 	}
-
-	_bindIntSpins() {
-		this._getIntSpins().forEach(this._bindIntSpin, this);
-	}
-
-	/********************
-	 * Booleans
-	 ********************/
-
-	_getBooleans() {
-		return [
-			'show-only-when-hover',
-			'hide-app-menu'
-		];
-	}
-
-	_bindBoolean(setting) {
-		let widget = this._getWidget(setting);
-		this._settings.bind(setting, widget, 'active', Gio.SettingsBindFlags.DEFAULT);
-	}
-
-	_bindBooleans() {
-		this._getBooleans().forEach(this._bindBoolean, this);
-	}
-});
-
-function init() {
-
-}
-
-function buildPrefsWidget() {
-	let settings = new Settings(Me.metadata['settings-schema']);
-	let widget = new PrefsWidget(settings);
-	widget.show_all();
-
-	return widget;
 }
